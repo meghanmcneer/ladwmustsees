@@ -286,6 +286,78 @@
     border-radius: 20px;
     padding: 18px;
   }
+
+  .mobile-preview-toggle {
+    display: none;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink);
+    background: var(--track);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 13px 16px;
+    cursor: pointer;
+  }
+  .mobile-preview-toggle .chevron {
+    display: inline-block;
+    color: var(--ink-soft);
+    transition: transform .15s ease;
+  }
+  .mobile-preview-toggle.open .chevron { transform: rotate(180deg); }
+
+  @media (max-width: 880px) {
+    .mobile-preview-toggle { display: flex; }
+    .preview-body { display: none; margin-top: 14px; }
+    .preview-body.open { display: block; }
+  }
+
+  .save-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 12, 8, 0.75);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .save-modal-overlay.hidden { display: none; }
+  .save-modal-box {
+    background: var(--panel);
+    border-radius: 18px;
+    padding: 18px;
+    max-width: 420px;
+    width: 100%;
+    text-align: center;
+  }
+  .save-modal-box img {
+    max-width: 100%;
+    border-radius: 12px;
+    display: block;
+    margin: 0 auto 14px;
+  }
+  .save-modal-box p {
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    margin: 0 0 14px;
+    line-height: 1.4;
+  }
+  .save-modal-close {
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 10px 22px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: var(--accent-ink);
+    cursor: pointer;
+  }
+
   .aspect-row {
     display: flex;
     gap: 8px;
@@ -394,7 +466,7 @@
 
   <header class="page-head">
     <h1>my must sees</h1>
-    <p>All 140 hosts, by day and neighborhood. Tap what you're actually going to, then grab the card.</p>
+    <p>All 140 hosts, by day and neighborhood. Click the number next to the neighborhood name to expand it and see the events. Tap what you're actually going to, there's even an option to RSVP. Once finished you can download and share the card.</p>
   </header>
 
   <div class="layout">
@@ -411,17 +483,31 @@
 
     <div class="preview-col">
       <div class="preview-card">
-        <div class="aspect-row" id="aspect-row"></div>
-        <p class="aspect-note">Heads up — Instagram Stories are actually 9:16 (portrait), not 16:9.</p>
-        <div class="page-tabs" id="page-tabs"></div>
-        <div class="canvas-frame">
-          <canvas id="card-canvas"></canvas>
+        <button class="mobile-preview-toggle" id="mobile-preview-toggle" type="button">
+          <span>Your card (<span id="mobile-sel-count">0</span> selected)</span>
+          <span class="chevron">▾</span>
+        </button>
+        <div class="preview-body" id="preview-body">
+          <div class="aspect-row" id="aspect-row"></div>
+          <p class="aspect-note">Heads up — Instagram Stories are actually 9:16 (portrait), not 16:9.</p>
+          <div class="page-tabs" id="page-tabs"></div>
+          <div class="canvas-frame">
+            <canvas id="card-canvas"></canvas>
+          </div>
+          <div class="empty-note" id="empty-note">Pick a few events to see your card fill in.</div>
+          <div class="page-note" id="page-note"></div>
+          <button class="download-btn" id="download-btn" type="button">Save / Download</button>
+          <div class="download-status" id="download-status"></div>
         </div>
-        <div class="empty-note" id="empty-note">Pick a few events to see your card fill in.</div>
-        <div class="page-note" id="page-note"></div>
-        <button class="download-btn" id="download-btn" type="button">Download PNG</button>
-        <div class="download-status" id="download-status"></div>
       </div>
+    </div>
+  </div>
+
+  <div class="save-modal-overlay hidden" id="save-modal">
+    <div class="save-modal-box">
+      <img id="save-modal-img" alt="Your must-sees card">
+      <p id="save-modal-text"></p>
+      <button class="save-modal-close" id="save-modal-close" type="button">Close</button>
     </div>
   </div>
 
@@ -626,9 +712,8 @@
   var TILE_NATIVE_W = 1200, TILE_NATIVE_H = 300;
 
   var ASPECTS = [
-    { key: "4:5", label: "4:5", w: 1080, h: 1350 },
-    { key: "9:16", label: "9:16 Stories", w: 1080, h: 1920 },
-    { key: "1:1", label: "1:1", w: 1080, h: 1080 }
+    { key: "4:5", label: "4:5", w: 1080, h: 1350, pageSize: 15 },
+    { key: "9:16", label: "9:16 Stories", w: 1080, h: 1920, pageSize: 22 }
   ];
 
   var STORAGE_KEY = "ladw-must-sees-v1";
@@ -652,6 +737,9 @@
         }
       }
     } catch (e) { /* private mode, storage disabled, etc — just start fresh */ }
+    if (!ASPECTS.some(function (a) { return a.key === currentAspect; })) {
+      currentAspect = "4:5";
+    }
   }
 
   function saveState() {
@@ -796,7 +884,7 @@
       for (var i = 0; i < flat.length; i++) {
         if (flat[i].dayIdx === parts[0] && flat[i].nbIdx === parts[1] && flat[i].evIdx === parts[2]) { flatIdx = i; break; }
       }
-      var pages = paginateFlat(flat);
+      var pages = paginateFlat(flat, currentPageSize());
       if (flatIdx !== -1 && pages.length) currentPage = pageIndexForFlatIndex(flatIdx, pages);
     }
 
@@ -807,7 +895,20 @@
   }
 
   function updateCount() {
-    selCountEl.textContent = Object.keys(selected).length;
+    var n = Object.keys(selected).length;
+    selCountEl.textContent = n;
+    if (mobileSelCountEl) mobileSelCountEl.textContent = n;
+  }
+
+  var mobileSelCountEl = document.getElementById("mobile-sel-count");
+  var mobilePreviewToggle = document.getElementById("mobile-preview-toggle");
+  var previewBody = document.getElementById("preview-body");
+  if (mobilePreviewToggle) {
+    mobilePreviewToggle.addEventListener("click", function () {
+      var isOpen = previewBody.classList.toggle("open");
+      mobilePreviewToggle.classList.toggle("open", isOpen);
+      if (isOpen) scheduleRender();
+    });
   }
 
   var searchDebounce = null;
@@ -898,19 +999,25 @@
     return Math.max(0, pages.length - 1);
   }
 
-  var PAGE_SIZE = 15;
   var MAX_PAGES = 6;
 
+  function currentPageSize() {
+    var a = ASPECTS.filter(function (x) { return x.key === currentAspect; })[0];
+    return (a && a.pageSize) || 15;
+  }
+
   // Splits the flat selection (already in chronological/day order) into
-  // cards of PAGE_SIZE, in order — card 1 gets the first 15, card 2 the
-  // next 15, and so on, so a day always spills onto the next card rather
-  // than being reshuffled. Only grows page size beyond 15 if the selection
-  // is so large it wouldn't otherwise fit within MAX_PAGES cards.
-  function paginateFlat(flat) {
+  // cards of pageSize, in order — card 1 gets the first N, card 2 the
+  // next N, and so on, so a day always spills onto the next card rather
+  // than being reshuffled. pageSize depends on the current aspect ratio
+  // (a taller Stories card comfortably holds more than a 4:5 card). Only
+  // grows beyond that if the selection is so large it wouldn't otherwise
+  // fit within MAX_PAGES cards.
+  function paginateFlat(flat, pageSize) {
     var total = flat.length;
     if (total === 0) return [];
-    var perPage = PAGE_SIZE;
-    if (total > MAX_PAGES * PAGE_SIZE) {
+    var perPage = pageSize;
+    if (total > MAX_PAGES * pageSize) {
       perPage = Math.ceil(total / MAX_PAGES);
     }
     var pages = [];
@@ -1068,7 +1175,8 @@
     ctx.drawImage(headerImg, hx, 0, hw, hh);
 
     var flat = getSelectedFlat();
-    var pages = paginateFlat(flat);
+    var pageSize = currentPageSize();
+    var pages = paginateFlat(flat, pageSize);
     var numPages = pages.length;
     if (currentPage >= numPages) currentPage = Math.max(0, numPages - 1);
     buildPageTabs(numPages);
@@ -1080,7 +1188,7 @@
     if (numPages > 1) {
       var perPageCount = pages[currentPage].length;
       pageNoteEl.textContent = "Card " + (currentPage + 1) + " of " + numPages + " — " + perPageCount + " events" +
-        (flat.length > MAX_PAGES * PAGE_SIZE ? " (cards expanded to fit all " + flat.length + " picks)" : "");
+        (flat.length > MAX_PAGES * pageSize ? " (cards expanded to fit all " + flat.length + " picks)" : "");
     } else {
       pageNoteEl.textContent = "";
     }
@@ -1115,6 +1223,60 @@
     window.claude.use("downloads").then(function (cap) { downloadsCap = cap; }).catch(function () { downloadsCap = null; });
   }
 
+  var isTouchDevice = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+
+  var saveModal = document.getElementById("save-modal");
+  var saveModalImg = document.getElementById("save-modal-img");
+  var saveModalText = document.getElementById("save-modal-text");
+  var saveModalUrl = null;
+  function closeSaveModal() {
+    saveModal.classList.add("hidden");
+    if (saveModalUrl) { URL.revokeObjectURL(saveModalUrl); saveModalUrl = null; }
+  }
+  document.getElementById("save-modal-close").addEventListener("click", closeSaveModal);
+  saveModal.addEventListener("click", function (e) { if (e.target === saveModal) closeSaveModal(); });
+
+  function showSaveModal(blob) {
+    if (saveModalUrl) URL.revokeObjectURL(saveModalUrl);
+    saveModalUrl = URL.createObjectURL(blob);
+    saveModalImg.src = saveModalUrl;
+    saveModalText.textContent = isTouchDevice
+      ? "Press and hold the image above, then choose \u201cAdd to Photos\u201d or \u201cSave Image\u201d to save it to your camera roll."
+      : "Right-click (or Control-click) the image above and choose \u201cSave Image As\u2026\u201d";
+    saveModal.classList.remove("hidden");
+  }
+
+  // On phones, we skip the OS share sheet entirely — on Android especially
+  // it tends to surface Drive/Files as the default destinations rather
+  // than Photos, which is exactly what should be avoided. Instead we show
+  // the rendered image directly and let the visitor long-press it: that's
+  // each OS's own "Save Image" / "Add to Photos" action, tied straight to
+  // the camera roll, with no picker in between. Desktop still gets a plain
+  // file download (or Claude's own save prompt, inside claude.ai).
+  function offerImage(blob, filename) {
+    if (isTouchDevice) {
+      showSaveModal(blob);
+      return;
+    }
+
+    if (downloadsCap) {
+      downloadStatus.textContent = "Saving…";
+      downloadsCap.save({ filename: filename, data: blob }).then(function () {
+        downloadStatus.textContent = "Saved.";
+        setTimeout(function () { downloadStatus.textContent = ""; }, 2500);
+      }).catch(function (err) {
+        if (err && err.code === "declined") {
+          downloadStatus.textContent = "";
+        } else {
+          fallbackDownload(blob, filename);
+        }
+      });
+      return;
+    }
+
+    fallbackDownload(blob, filename);
+  }
+
   downloadBtn.addEventListener("click", function () {
     canvas.toBlob(function (blob) {
       if (!blob) {
@@ -1125,21 +1287,7 @@
       var tabs = pageTabsEl.children.length;
       if (tabs > 1) pageSuffix = "-card" + (currentPage + 1) + "of" + tabs;
       var filename = "ladw-must-sees-" + currentAspect.replace(":", "x") + pageSuffix + ".png";
-      if (downloadsCap) {
-        downloadStatus.textContent = "Saving…";
-        downloadsCap.save({ filename: filename, data: blob }).then(function () {
-          downloadStatus.textContent = "Saved.";
-          setTimeout(function () { downloadStatus.textContent = ""; }, 2500);
-        }).catch(function (err) {
-          if (err && err.code === "declined") {
-            downloadStatus.textContent = "";
-          } else {
-            fallbackDownload(blob, filename);
-          }
-        });
-      } else {
-        fallbackDownload(blob, filename);
-      }
+      offerImage(blob, filename);
     }, "image/png");
   });
 
