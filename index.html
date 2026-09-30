@@ -315,38 +315,28 @@
     .preview-body.open { display: block; }
   }
 
-  .save-modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(20, 12, 8, 0.75);
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-  }
-  .save-modal-overlay.hidden { display: none; }
-  .save-modal-box {
-    background: var(--panel);
-    border-radius: 18px;
-    padding: 18px;
-    max-width: 420px;
-    width: 100%;
+  .save-inline {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
     text-align: center;
   }
-  .save-modal-box img {
+  .save-inline.hidden { display: none; }
+  .save-inline img {
     max-width: 100%;
     border-radius: 12px;
     display: block;
     margin: 0 auto 14px;
+    box-shadow: 0 8px 24px var(--card-shadow);
   }
-  .save-modal-box p {
+  .save-inline p {
     font-size: 13.5px;
     color: var(--ink-soft);
     margin: 0 0 14px;
     line-height: 1.4;
+    font-weight: 600;
   }
-  .save-modal-close {
+  .save-inline-close {
     font-family: inherit;
     font-weight: 700;
     font-size: 14px;
@@ -483,11 +473,11 @@
 
     <div class="preview-col">
       <div class="preview-card">
-        <button class="mobile-preview-toggle" id="mobile-preview-toggle" type="button">
+        <button class="mobile-preview-toggle open" id="mobile-preview-toggle" type="button">
           <span>Your card (<span id="mobile-sel-count">0</span> selected)</span>
           <span class="chevron">▾</span>
         </button>
-        <div class="preview-body" id="preview-body">
+        <div class="preview-body open" id="preview-body">
           <div class="aspect-row" id="aspect-row"></div>
           <p class="aspect-note">Heads up — Instagram Stories are actually 9:16 (portrait), not 16:9.</p>
           <div class="page-tabs" id="page-tabs"></div>
@@ -498,18 +488,16 @@
           <div class="page-note" id="page-note"></div>
           <button class="download-btn" id="download-btn" type="button">Save / Download</button>
           <div class="download-status" id="download-status"></div>
+          <div class="save-inline hidden" id="save-inline">
+            <img id="save-inline-img" alt="Your must-sees card">
+            <p id="save-inline-text"></p>
+            <button class="save-inline-close" id="save-inline-close" type="button">Done</button>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="save-modal-overlay hidden" id="save-modal">
-    <div class="save-modal-box">
-      <img id="save-modal-img" alt="Your must-sees card">
-      <p id="save-modal-text"></p>
-      <button class="save-modal-close" id="save-modal-close" type="button">Close</button>
-    </div>
-  </div>
 
 </div>
 
@@ -1225,25 +1213,31 @@
 
   var isTouchDevice = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
 
-  var saveModal = document.getElementById("save-modal");
-  var saveModalImg = document.getElementById("save-modal-img");
-  var saveModalText = document.getElementById("save-modal-text");
-  var saveModalUrl = null;
-  function closeSaveModal() {
-    saveModal.classList.add("hidden");
-    if (saveModalUrl) { URL.revokeObjectURL(saveModalUrl); saveModalUrl = null; }
+  var saveInline = document.getElementById("save-inline");
+  var saveInlineImg = document.getElementById("save-inline-img");
+  var saveInlineText = document.getElementById("save-inline-text");
+  var saveInlineUrl = null;
+  function closeSaveInline() {
+    saveInline.classList.add("hidden");
+    if (saveInlineUrl) { URL.revokeObjectURL(saveInlineUrl); saveInlineUrl = null; }
   }
-  document.getElementById("save-modal-close").addEventListener("click", closeSaveModal);
-  saveModal.addEventListener("click", function (e) { if (e.target === saveModal) closeSaveModal(); });
+  document.getElementById("save-inline-close").addEventListener("click", closeSaveInline);
 
-  function showSaveModal(blob) {
-    if (saveModalUrl) URL.revokeObjectURL(saveModalUrl);
-    saveModalUrl = URL.createObjectURL(blob);
-    saveModalImg.src = saveModalUrl;
-    saveModalText.textContent = isTouchDevice
+  // Shown as ordinary page content right under the Save/Download button \u2014
+  // not a floating overlay. A fixed/absolute overlay is unreliable inside
+  // an auto-resizing iframe (like the Squarespace embed): its centering
+  // math is computed against the iframe's stale size, so the box can end
+  // up positioned off-screen while a dark tint bleeds across whatever's
+  // visible. Inline content has no such failure mode.
+  function showSaveInline(blob) {
+    if (saveInlineUrl) URL.revokeObjectURL(saveInlineUrl);
+    saveInlineUrl = URL.createObjectURL(blob);
+    saveInlineImg.src = saveInlineUrl;
+    saveInlineText.textContent = isTouchDevice
       ? "Press and hold the image above, then choose \u201cAdd to Photos\u201d or \u201cSave Image\u201d to save it to your camera roll."
       : "Right-click (or Control-click) the image above and choose \u201cSave Image As\u2026\u201d";
-    saveModal.classList.remove("hidden");
+    saveInline.classList.remove("hidden");
+    saveInline.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
   // On phones, we skip the OS share sheet entirely — on Android especially
@@ -1255,7 +1249,7 @@
   // file download (or Claude's own save prompt, inside claude.ai).
   function offerImage(blob, filename) {
     if (isTouchDevice) {
-      showSaveModal(blob);
+      showSaveInline(blob);
       return;
     }
 
